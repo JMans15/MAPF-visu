@@ -11,6 +11,7 @@ use ndarray::Array2;
 use std::cell::Cell;
 use std::fs::File;
 use std::io::{BufReader, Read};
+use std::process::Command;
 use std::rc::Rc;
 
 const APP_ID: &str = "org.gtk_rs.mapf";
@@ -194,6 +195,7 @@ fn build_ui(app: &Application) {
 
     let button = Button::with_label("Choose map file");
     let button_scen = Button::with_label("Choose scen folder");
+    let button_run = gtk::Button::builder().label("Run").build();
     let settings = Box::new(gtk::Orientation::Vertical, 10);
     let hbox = Box::new(gtk::Orientation::Horizontal, 10);
     let scen_list = ListBox::new();
@@ -202,16 +204,19 @@ fn build_ui(app: &Application) {
     scrolled_window.set_min_content_width(250);
     scrolled_window.set_child(Some(&scen_list));
     let model = gtk::StringList::new(&["A", "B", "C"]);
+    let nagents = gtk::Entry::builder().name("n agent").build();
     let algo_dropdown = DropDown::new(Some(model), gtk::Expression::NONE);
 
     let map_matrix = Rc::new(Cell::new(Array2::<bool>::default((1, 1))));
     let scen_directory = Rc::new(Cell::new("".to_owned()));
+    let scen_file = Rc::new(Cell::new("".to_owned()));
+    let map_file = Rc::new(Cell::new("".to_owned()));
     let scen_matrix = Rc::new(Cell::new(Vec::<Vec<u32>>::new()));
     let grid_width = Rc::new(Cell::new(0));
     let grid_height = Rc::new(Cell::new(0));
 
     canvas.set_draw_func(
-        clone!(@strong map_matrix, @strong scen_matrix, @weak grid_width, @weak grid_height => move |_, cr, _, _| {
+        clone!(@strong map_matrix, @strong scen_matrix, @weak grid_width, @weak grid_height, @weak nagents => move |_, cr, _, _| {
             if grid_width.get() == 0 {
                 return;
             }
@@ -230,7 +235,11 @@ fn build_ui(app: &Application) {
             map_matrix.set(mmatrix);
 
             let smatrix = scen_matrix.take();
-            smatrix.iter().for_each(|agent| {
+            let mut n = nagents.text().to_string().parse::<usize>().unwrap_or(smatrix.len());
+            if smatrix.len() < n || n == 0 {
+                n = smatrix.len();
+            }
+            smatrix.to_vec()[0..n].iter().for_each(|agent| {
                 cr.rectangle(agent[0] as f64 * cell_w, agent[1] as f64 * cell_h, cell_w, cell_h);
                 cr.set_source_rgb(0.0, 1.0, 0.0);
                 cr.fill().unwrap();
@@ -258,24 +267,59 @@ fn build_ui(app: &Application) {
 
     // When clicking on a scenario file name
     scen_list.connect_row_activated(
-        clone!(@weak scen_directory, @weak scen_matrix, @weak canvas => move |_, row| {
+        clone!(@weak scen_directory, @weak scen_matrix, @weak canvas, @strong scen_file => move |_, row| {
+        let dir = scen_directory.take();
+        let file_path = format!(
+            "{}/{}",
+            dir,
+            row.child()
+                .unwrap()
+                .downcast::<gtk::Label>()
+                .unwrap()
+                .label()
+                .as_str()
+        );
+            scen_directory.set(dir);
+            scen_file.set(file_path);
             scen_file_parse(&scen_directory, row, scen_matrix, &canvas)
         }),
     );
 
-    button.connect_clicked(clone!(@strong map_matrix, @weak window, @weak canvas => move |_| {
+    button.connect_clicked(clone!(@strong map_matrix, @weak window, @weak canvas, @strong map_file => move |_| {
         let dialog = FileChooserDialog::new(Some("Choose a file"),
         Some(&window), FileChooserAction::Open, &[("Open", gtk::ResponseType::Accept), ("Close", gtk::ResponseType::Cancel)]);
-        dialog.connect_response(clone!(@weak map_matrix, @weak grid_width, @weak grid_height => move |d: &FileChooserDialog, response: ResponseType| {
+        dialog.connect_response(clone!(@weak map_matrix, @weak grid_width, @weak grid_height, @weak map_file => move |d: &FileChooserDialog, response: ResponseType| {
+            map_file.set(d.file().unwrap().path().unwrap().to_str().unwrap().to_owned());
             map_file_parse(&response, d, grid_height, grid_width, map_matrix, &canvas);
         }));
         dialog.show();
     }));
 
+    button_run.connect_clicked(clone!(@weak nagents, @weak scen_file => move |_| {
+        let sf = scen_file.take();
+        let mf = map_file.take();
+        println!("Running, {} agents, scen is {}, map is {}", nagents.text().to_string(), sf, mf);
+        let status = Command::new("./TFE_MAPF_visu")
+            .arg("-a")
+            .arg("ID")
+            .arg("--map")
+            .arg(mf.clone())
+            .arg("--scen")
+            .arg(sf.clone())
+            .arg("-n")
+            .arg(nagents.text().to_string())
+        .arg("--outfile").arg("./out").status().unwrap();
+        scen_file.set(sf);
+        map_file.set(mf);
+        println!("Ok, {}", status);
+    }));
+
     settings.append(&button);
+    settings.append(&nagents);
     settings.append(&button_scen);
     settings.append(&algo_dropdown);
     settings.append(&scrolled_window);
+    settings.append(&button_run);
     hbox.append(&canvas);
     hbox.append(&settings);
 
