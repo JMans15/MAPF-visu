@@ -132,6 +132,30 @@ fn scen_file_parse(
     canvas.queue_draw();
 }
 
+fn result_parse() -> Vec<Vec<usize>> {
+    let file = std::fs::read_to_string("./.out").unwrap();
+    let mut lines: Vec<&str> = file.split('\n').filter(|e| !e.is_empty()).collect();
+    let header: Vec<usize> = lines
+        .remove(0)
+        .split(' ')
+        .map(|s| s.parse().expect("Couldn't parse"))
+        .collect();
+    if header.len() < 2 {
+        return Default::default();
+    }
+    let mut result: Vec<Vec<usize>> = Vec::with_capacity(header[0] * header[1]);
+    for line in lines {
+        result.append(&mut vec![line
+            .split(',')
+            .map(|s| {
+                println!("{}", s);
+                s.parse().expect("Couldn't parse")
+            })
+            .collect::<Vec<usize>>()])
+    }
+    return result;
+}
+
 fn map_file_parse(
     response: &ResponseType,
     d: &FileChooserDialog,
@@ -196,6 +220,13 @@ fn build_ui(app: &Application) {
     let button = Button::with_label("Choose map file");
     let button_scen = Button::with_label("Choose scen folder");
     let button_run = gtk::Button::builder().label("Run").build();
+    let nextprevbox = Box::builder()
+        .orientation(gtk::Orientation::Horizontal)
+        .spacing(10)
+        .build();
+    let prevbutton = Button::builder().label("Prev").width_request(120).build();
+    let nextbutton = Button::builder().label("Next").width_request(120).build();
+    let allbutton = Button::builder().label("All").width_request(250).build();
     let settings = Box::new(gtk::Orientation::Vertical, 10);
     let hbox = Box::new(gtk::Orientation::Horizontal, 10);
     let scen_list = ListBox::new();
@@ -214,14 +245,24 @@ fn build_ui(app: &Application) {
     let scen_matrix = Rc::new(Cell::new(Vec::<Vec<u32>>::new()));
     let grid_width = Rc::new(Cell::new(0));
     let grid_height = Rc::new(Cell::new(0));
+    let sol_matrix = Rc::new(Cell::new(Vec::<Vec<usize>>::new()));
+    let sol_step = Rc::new(Cell::new(Option::None::<i32>));
 
     canvas.set_draw_func(
-        clone!(@strong map_matrix, @strong scen_matrix, @weak grid_width, @weak grid_height, @weak nagents => move |_, cr, _, _| {
+        clone!(@strong sol_matrix, @strong map_matrix, @strong scen_matrix, @weak grid_width, @weak grid_height, @weak nagents => move |_, cr, _, _| {
             if grid_width.get() == 0 {
                 return;
             }
             let cell_w: f64 = CANVAS_WIDTH as f64 / grid_width.get() as f64;
             let cell_h: f64 = CANVAS_HEIGHT as f64 / grid_height.get() as f64;
+
+            let solmatrix = sol_matrix.take();
+            for cell in solmatrix {
+                cr.rectangle(cell[0] as f64 * cell_w, cell[1] as f64 * cell_h, cell_w, cell_h);
+                cr.set_source_rgb(0., 0., 1.);
+                cr.fill().unwrap();
+            }
+
             let mmatrix = map_matrix.take();
             mmatrix.axis_iter(Axis(0)).enumerate().for_each(|(i, line)| {
                 line.iter().enumerate().for_each(|(j, elem)| {
@@ -285,7 +326,7 @@ fn build_ui(app: &Application) {
         }),
     );
 
-    button.connect_clicked(clone!(@strong map_matrix, @weak window, @weak canvas, @strong map_file => move |_| {
+    button.connect_clicked(clone!(@strong map_matrix, @weak window, @weak canvas, @strong map_file, @strong grid_width, @strong grid_height => move |_| {
         let dialog = FileChooserDialog::new(Some("Choose a file"),
         Some(&window), FileChooserAction::Open, &[("Open", gtk::ResponseType::Accept), ("Close", gtk::ResponseType::Cancel)]);
         dialog.connect_response(clone!(@weak map_matrix, @weak grid_width, @weak grid_height, @weak map_file => move |d: &FileChooserDialog, response: ResponseType| {
@@ -295,7 +336,7 @@ fn build_ui(app: &Application) {
         dialog.show();
     }));
 
-    button_run.connect_clicked(clone!(@weak nagents, @weak scen_file => move |_| {
+    button_run.connect_clicked(clone!(@weak sol_matrix, @weak nagents, @weak scen_file, @weak grid_width, @weak grid_height, @weak canvas => move |_| {
         let sf = scen_file.take();
         let mf = map_file.take();
         println!("Running, {} agents, scen is {}, map is {}", nagents.text().to_string(), sf, mf);
@@ -308,10 +349,51 @@ fn build_ui(app: &Application) {
             .arg(sf.clone())
             .arg("-n")
             .arg(nagents.text().to_string())
-        .arg("--outfile").arg("./out").status().unwrap();
+        .arg("--outfile").arg("./.out").status().unwrap();
         scen_file.set(sf);
         map_file.set(mf);
         println!("Ok, {}", status);
+        let res = result_parse();
+        sol_matrix.set(res);
+        canvas.queue_draw();
+    }));
+
+    nextbutton.connect_clicked(clone!(@strong sol_step => move |_| {
+        let mut ss = sol_step.take();
+        match ss {
+            None => {
+                ss = Some(0);
+                println!("None => 0");
+            },
+            Some(val) => {
+                ss = Some(val+1);
+                println!("{} => {}", val, val+1);
+            },
+        }
+        sol_step.set(ss);
+    }));
+
+    prevbutton.connect_clicked(clone!(@strong sol_step, @strong sol_matrix => move |_| {
+        let mut ss = sol_step.take();
+        let sm = sol_matrix.take();
+        match ss {
+            None => {
+                let nw = sm.len() as i32;
+                println!("None => {}", nw);
+                ss = Some(nw);
+            },
+            Some(val) => {
+                let nw: i32;
+                if val == 0 {
+                    nw = 0;
+                } else {
+                    nw = val - 1;
+                }
+                println!("{} => {}", val, nw);
+                ss = Some(nw);
+            },
+        }
+        sol_step.set(ss);
     }));
 
     settings.append(&button);
@@ -320,8 +402,11 @@ fn build_ui(app: &Application) {
     settings.append(&algo_dropdown);
     settings.append(&scrolled_window);
     settings.append(&button_run);
+    settings.append(&nextprevbox);
     hbox.append(&canvas);
     hbox.append(&settings);
+    nextprevbox.append(&prevbutton);
+    nextprevbox.append(&nextbutton);
 
     window.set_child(Some(&hbox));
     window.present();
