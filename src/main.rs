@@ -132,7 +132,7 @@ fn scen_file_parse(
     canvas.queue_draw();
 }
 
-fn result_parse() -> Vec<Vec<usize>> {
+fn result_parse() -> Array3<usize> {
     let file = std::fs::read_to_string("./.out").unwrap();
     let mut lines: Vec<&str> = file.split('\n').filter(|e| !e.is_empty()).collect();
     let header: Vec<usize> = lines
@@ -143,15 +143,19 @@ fn result_parse() -> Vec<Vec<usize>> {
     if header.len() < 2 {
         return Default::default();
     }
-    let mut result: Vec<Vec<usize>> = Vec::with_capacity(header[0] * header[1]);
-    for line in lines {
-        result.append(&mut vec![line
-            .split(',')
-            .map(|s| {
-                println!("{}", s);
-                s.parse().expect("Couldn't parse")
-            })
-            .collect::<Vec<usize>>()])
+    // step, agent, xy
+    let mut result = Array3::<usize>::default((header[1], header[0], 2));
+    for step in 0..header[1] {
+        for agent in 0..header[0] {
+            result
+                .slice_mut(s![step, agent, ..])
+                .assign(&Array1::from_iter(
+                    lines[step * header[0] + agent]
+                        .split(',')
+                        .map(|s| s.parse().expect("Couldn't parse"))
+                        .collect::<Array1<usize>>(),
+                ));
+        }
     }
     return result;
 }
@@ -227,6 +231,7 @@ fn build_ui(app: &Application) {
     let prevbutton = Button::builder().label("Prev").width_request(120).build();
     let nextbutton = Button::builder().label("Next").width_request(120).build();
     let allbutton = Button::builder().label("All").width_request(250).build();
+    let clearbutton = Button::builder().label("Clear").width_request(250).build();
     let settings = Box::new(gtk::Orientation::Vertical, 10);
     let hbox = Box::new(gtk::Orientation::Horizontal, 10);
     let scen_list = ListBox::new();
@@ -234,7 +239,7 @@ fn build_ui(app: &Application) {
     scrolled_window.set_min_content_height(400);
     scrolled_window.set_min_content_width(250);
     scrolled_window.set_child(Some(&scen_list));
-    let model = gtk::StringList::new(&["A", "B", "C"]);
+    let model = gtk::StringList::new(&["ID", "A*", "CBS", "(W.I.P)"]);
     let nagents = gtk::Entry::builder().name("n agent").build();
     let algo_dropdown = DropDown::new(Some(model), gtk::Expression::NONE);
 
@@ -245,11 +250,11 @@ fn build_ui(app: &Application) {
     let scen_matrix = Rc::new(Cell::new(Vec::<Vec<u32>>::new()));
     let grid_width = Rc::new(Cell::new(0));
     let grid_height = Rc::new(Cell::new(0));
-    let sol_matrix = Rc::new(Cell::new(Vec::<Vec<usize>>::new()));
+    let sol_matrix = Rc::new(Cell::new(Array3::<usize>::default((0, 0, 0))));
     let sol_step = Rc::new(Cell::new(Option::None::<i32>));
 
     canvas.set_draw_func(
-        clone!(@strong sol_matrix, @strong map_matrix, @strong scen_matrix, @weak grid_width, @weak grid_height, @weak nagents => move |_, cr, _, _| {
+        clone!(@strong sol_step, @strong sol_matrix, @strong map_matrix, @strong scen_matrix, @weak grid_width, @weak grid_height, @weak nagents => move |_, cr, _, _| {
             if grid_width.get() == 0 {
                 return;
             }
@@ -257,11 +262,27 @@ fn build_ui(app: &Application) {
             let cell_h: f64 = CANVAS_HEIGHT as f64 / grid_height.get() as f64;
 
             let solmatrix = sol_matrix.take();
-            for cell in solmatrix {
-                cr.rectangle(cell[0] as f64 * cell_w, cell[1] as f64 * cell_h, cell_w, cell_h);
-                cr.set_source_rgb(0., 0., 1.);
-                cr.fill().unwrap();
+            let ss = sol_step.take();
+            match ss {
+                None => { 
+                    for step in solmatrix.axis_iter(Axis(0)) {
+                        for agent in step.axis_iter(Axis(0)) {
+                            cr.rectangle(agent[0] as f64 * cell_w, agent[1] as f64 * cell_h, cell_w, cell_h);
+                            cr.set_source_rgb(0., 0., 1.);
+                            cr.fill().unwrap();
+                        }
+                    }
+                },
+                Some(val) => {
+                    for agent in solmatrix.slice(s![val, .., ..]).axis_iter(Axis(0)) {
+                        cr.rectangle(agent[0] as f64 * cell_w, agent[1] as f64 * cell_h, cell_w, cell_h);
+                        cr.set_source_rgb(0., 0., 1.);
+                        cr.fill().unwrap();
+                    }
+                }
             }
+            sol_step.set(ss);
+            sol_matrix.set(solmatrix);
 
             let mmatrix = map_matrix.take();
             mmatrix.axis_iter(Axis(0)).enumerate().for_each(|(i, line)| {
@@ -336,7 +357,7 @@ fn build_ui(app: &Application) {
         dialog.show();
     }));
 
-    button_run.connect_clicked(clone!(@weak sol_matrix, @weak nagents, @weak scen_file, @weak grid_width, @weak grid_height, @weak canvas => move |_| {
+    button_run.connect_clicked(clone!(@weak map_file, @weak sol_matrix, @weak nagents, @weak scen_file, @weak grid_width, @weak grid_height, @weak canvas => move |_| {
         let sf = scen_file.take();
         let mf = map_file.take();
         println!("Running, {} agents, scen is {}, map is {}", nagents.text().to_string(), sf, mf);
@@ -358,28 +379,38 @@ fn build_ui(app: &Application) {
         canvas.queue_draw();
     }));
 
-    nextbutton.connect_clicked(clone!(@strong sol_step => move |_| {
-        let mut ss = sol_step.take();
-        match ss {
-            None => {
-                ss = Some(0);
-                println!("None => 0");
-            },
-            Some(val) => {
-                ss = Some(val+1);
-                println!("{} => {}", val, val+1);
-            },
-        }
-        sol_step.set(ss);
-    }));
-
-    prevbutton.connect_clicked(clone!(@strong sol_step, @strong sol_matrix => move |_| {
+    nextbutton.connect_clicked(clone!(@strong sol_matrix, @weak canvas, @strong sol_step => move |_| {
         let mut ss = sol_step.take();
         let sm = sol_matrix.take();
         match ss {
             None => {
-                let nw = sm.len() as i32;
-                println!("None => {}", nw);
+                if sm.len() <= 0 {
+                    return;
+                }
+                ss = Some(0);
+            },
+            Some(val) => {
+                let mut nw = val;
+                if val + 1 < sm.len_of(Axis(0)) as i32 {
+                    nw = val+1;
+                }
+                ss = Some(nw);
+            },
+        }
+        sol_step.set(ss);
+        sol_matrix.set(sm);
+        canvas.queue_draw();
+    }));
+
+    prevbutton.connect_clicked(clone!(@weak canvas, @strong sol_step, @strong sol_matrix => move |_| {
+        let mut ss = sol_step.take();
+        let sm = sol_matrix.take();
+        match ss {
+            None => {
+                if sm.len() <= 0 {
+                    return;
+                }
+                let nw = sm.len_of(Axis(0)) as i32 - 1;
                 ss = Some(nw);
             },
             Some(val) => {
@@ -389,11 +420,37 @@ fn build_ui(app: &Application) {
                 } else {
                     nw = val - 1;
                 }
-                println!("{} => {}", val, nw);
                 ss = Some(nw);
             },
         }
         sol_step.set(ss);
+        sol_matrix.set(sm);
+        canvas.queue_draw();
+    }));
+
+    allbutton.connect_clicked(clone!(@strong sol_step, @weak canvas => move |_| {
+        sol_step.set(None);
+        canvas.queue_draw();
+    }));
+
+    clearbutton.connect_clicked(clone!(@strong scen_list, @strong canvas, @strong map_file, @strong grid_width, @strong grid_height, @strong sol_matrix, @strong sol_step, @strong scen_file, @strong scen_directory, @strong scen_matrix, @strong map_matrix => move |_| {
+        map_matrix.set(Array2::<bool>::default((1, 1)));
+        scen_directory.set("".to_owned());
+        scen_file.set("".to_owned());
+        map_file.set("".to_owned());
+        scen_matrix.set(Vec::<Vec<u32>>::new());
+        grid_width.set(0);
+        grid_height.set(0);
+        sol_matrix.set(Array3::<usize>::default((0, 0, 0)));
+        sol_step.set(Option::None::<i32>);
+        loop {
+            let row = scen_list.row_at_index(0);
+            if row.is_none() {
+                break;
+            }
+            scen_list.remove(&row.unwrap());
+        }
+        canvas.queue_draw();
     }));
 
     settings.append(&button);
@@ -403,6 +460,8 @@ fn build_ui(app: &Application) {
     settings.append(&scrolled_window);
     settings.append(&button_run);
     settings.append(&nextprevbox);
+    settings.append(&allbutton);
+    settings.append(&clearbutton);
     hbox.append(&canvas);
     hbox.append(&settings);
     nextprevbox.append(&prevbutton);
