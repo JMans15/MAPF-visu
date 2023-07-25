@@ -7,4 +7,4 @@ How to use linux and macos:
 
 If there's a problem:
 - I'm very sad
-- Cargo should take care of all the dependencies automatically (<3), but I don't know if macos ships a default GTK theme by default (this is a GTK4 app), you may need to install one
+- Cargo should take care of all the dependencies automatically (<3), but I don't know if macos ships a default GTK theme (this is a GTK4 app), you may need to install one
