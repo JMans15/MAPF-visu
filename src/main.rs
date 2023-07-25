@@ -1,7 +1,7 @@
 #![allow(clippy::upper_case_acronyms, dead_code)]
 
 use gtk::glib::clone;
-use gtk::{glib, Application, Box, FileChooserAction, FileChooserDialog, ListBox};
+use gtk::{glib, Application, Box, FileChooserAction, FileChooserDialog, ListBox, StringList};
 use gtk::{
     prelude::*, ApplicationWindow, Button, DrawingArea, DropDown, ListBoxRow, ResponseType,
     ScrolledWindow,
@@ -221,7 +221,7 @@ fn build_ui(app: &Application) {
     let canvas = DrawingArea::new();
     canvas.set_size_request(CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    let button = Button::with_label("Choose map file");
+    let button = Button::builder().label("Choose a map file").margin_top(10).build();
     let button_scen = Button::with_label("Choose scen folder");
     let button_run = gtk::Button::builder().label("Run").build();
     let nextprevbox = Box::builder()
@@ -239,8 +239,8 @@ fn build_ui(app: &Application) {
     scrolled_window.set_min_content_height(400);
     scrolled_window.set_min_content_width(250);
     scrolled_window.set_child(Some(&scen_list));
-    let model = gtk::StringList::new(&["ID", "A*", "CBS", "(W.I.P)"]);
-    let nagents = gtk::Entry::builder().name("n agent").build();
+    let nagents = gtk::Entry::builder().name("n agent").placeholder_text("# agents").build();
+    let model = gtk::StringList::new(&["ID", "AStar", "CBS"]);
     let algo_dropdown = DropDown::new(Some(model), gtk::Expression::NONE);
 
     let map_matrix = Rc::new(Cell::new(Array2::<bool>::default((1, 1))));
@@ -351,19 +351,25 @@ fn build_ui(app: &Application) {
         let dialog = FileChooserDialog::new(Some("Choose a file"),
         Some(&window), FileChooserAction::Open, &[("Open", gtk::ResponseType::Accept), ("Close", gtk::ResponseType::Cancel)]);
         dialog.connect_response(clone!(@weak map_matrix, @weak grid_width, @weak grid_height, @weak map_file => move |d: &FileChooserDialog, response: ResponseType| {
-            map_file.set(d.file().unwrap().path().unwrap().to_str().unwrap().to_owned());
+            let file = d.file();
+            match file {
+                None => return,
+                Some(val) => map_file.set(val.path().unwrap().to_str().unwrap().to_owned()),
+            }
             map_file_parse(&response, d, grid_height, grid_width, map_matrix, &canvas);
         }));
         dialog.show();
     }));
 
-    button_run.connect_clicked(clone!(@weak map_file, @weak sol_matrix, @weak nagents, @weak scen_file, @weak grid_width, @weak grid_height, @weak canvas => move |_| {
+    button_run.connect_clicked(clone!(@weak algo_dropdown, @weak map_file, @weak sol_matrix, @weak nagents, @weak scen_file, @weak grid_width, @weak grid_height, @weak canvas => move |_| {
         let sf = scen_file.take();
         let mf = map_file.take();
-        println!("Running, {} agents, scen is {}, map is {}", nagents.text().to_string(), sf, mf);
+        let nthalg = algo_dropdown.selected();
+        let alg = algo_dropdown.model().unwrap().downcast::<StringList>().ok().unwrap().string(nthalg).unwrap();
+        println!("Running {}, {} agents, scen is {}, map is {}", alg, nagents.text().to_string(), sf, mf);
         let status = Command::new("./TFE_MAPF_visu")
             .arg("-a")
-            .arg("ID")
+            .arg(alg)
             .arg("--map")
             .arg(mf.clone())
             .arg("--scen")
