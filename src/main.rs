@@ -240,7 +240,10 @@ fn build_ui(app: &Application) {
     scrolled_window.set_min_content_width(250);
     scrolled_window.set_child(Some(&scen_list));
     let nagents = gtk::Entry::builder().name("n agent").placeholder_text("# agents").build();
-    let model = gtk::StringList::new(&["ID", "AStar", "CBS"]);
+    
+
+    let model = gtk::StringList::new(&["A*","A* OD","ID A*","ID A* CAT","ID CBS","ID CBS CAT","SID A*",
+        "SID A* CAT","SID CBS","SID CBS CAT","CBS DS","CBS DS CAT","CBS","CBSCAT"]);
     let algo_dropdown = DropDown::new(Some(model), gtk::Expression::NONE);
 
     let map_matrix = Rc::new(Cell::new(Array2::<bool>::default((1, 1))));
