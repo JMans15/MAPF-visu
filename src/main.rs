@@ -13,6 +13,9 @@ use std::fs::File;
 use std::io::{BufReader, Read};
 use std::process::Command;
 use std::rc::Rc;
+use std::time::Duration;
+
+use wait_timeout::ChildExt;
 
 const APP_ID: &str = "org.gtk_rs.mapf";
 const CANVAS_WIDTH: i32 = 768;
@@ -192,8 +195,8 @@ fn build_ui(app: &Application) {
         .orientation(gtk::Orientation::Horizontal)
         .spacing(10)
         .build();
-    let prevbutton = Button::builder().label("Prev").width_request(120).build();
-    let nextbutton = Button::builder().label("Next").width_request(120).build();
+    let prevbutton = Button::builder().label("Prev").width_request(166).build();
+    let nextbutton = Button::builder().label("Next").width_request(166).build();
     let allbutton = Button::builder().label("All").width_request(250).build();
     let clearbutton = Button::builder().label("Clear").width_request(250).build();
     let settings = Box::new(gtk::Orientation::Vertical, 10);
@@ -203,7 +206,9 @@ fn build_ui(app: &Application) {
     scrolled_window.set_min_content_height(400);
     scrolled_window.set_min_content_width(250);
     scrolled_window.set_child(Some(&scen_list));
+    let texthbox = Box::new(gtk::Orientation::Horizontal, 10);
     let nagents = gtk::Entry::builder().name("n agent").placeholder_text("# agents").build();
+    let timeout = gtk::Entry::builder().name("timeout").placeholder_text("timeout [s]").build();
     
 
     let model = gtk::StringList::new(&["A*","A* OD","ID A*","ID A* CAT","ID CBS","ID CBS CAT","SID A*",
@@ -296,7 +301,7 @@ fn build_ui(app: &Application) {
 
     // When clicking on a scenario file name
     scen_list.connect_row_activated(
-        clone!(@weak scen_directory, @weak scen_matrix, @weak canvas, @strong scen_file => move |_, row| {
+        clone!(@weak sol_step, @weak sol_matrix, @weak scen_directory, @weak scen_matrix, @weak canvas, @strong scen_file => move |_, row| {
         let dir = scen_directory.take();
         let file_path = format!(
             "{}/{}",
@@ -310,6 +315,8 @@ fn build_ui(app: &Application) {
         );
             scen_directory.set(dir);
             scen_file.set(file_path);
+            sol_matrix.set(Array3::<usize>::default((0, 0, 0)));
+            sol_step.set(Option::None::<i32>);
             scen_file_parse(&scen_directory, row, scen_matrix, &canvas)
         }),
     );
@@ -328,13 +335,13 @@ fn build_ui(app: &Application) {
         dialog.show();
     }));
 
-    button_run.connect_clicked(clone!(@weak algo_dropdown, @weak map_file, @weak sol_matrix, @weak nagents, @weak scen_file, @weak grid_width, @weak grid_height, @weak canvas => move |_| {
+    button_run.connect_clicked(clone!(@weak timeout, @weak algo_dropdown, @weak map_file, @weak sol_matrix, @weak nagents, @weak scen_file, @weak grid_width, @weak grid_height, @weak canvas => move |_| {
         let sf = scen_file.take();
         let mf = map_file.take();
         let nthalg = algo_dropdown.selected();
         let alg = algo_dropdown.model().unwrap().downcast::<StringList>().ok().unwrap().string(nthalg).unwrap();
         println!("Running {}, {} agents, scen is {}, map is {}", alg, nagents.text().to_string(), sf, mf);
-        let status = Command::new("./TFE_MAPF_visu")
+        let mut child = Command::new("./TFE_MAPF_visu")
             .arg("-a")
             .arg(alg)
             .arg("--map")
@@ -343,13 +350,24 @@ fn build_ui(app: &Application) {
             .arg(sf.clone())
             .arg("-n")
             .arg(nagents.text().to_string())
-        .arg("--outfile").arg("./.out").status().unwrap();
+        .arg("--outfile").arg("./.out").spawn().unwrap();
+        let tm = timeout.text().to_string().parse::<u64>().expect("Couldn't parse");
+        let status = match child.wait_timeout(Duration::from_secs(tm)).unwrap() {
+            Some(st) => st.code().unwrap(),
+            None => {
+                child.kill().unwrap();
+                child.wait().expect("oopsie");
+                1
+            }
+        };
+        println!("Ok, {}", status);
+        if status == 0 {
+            let res = result_parse();
+            sol_matrix.set(res);
+            canvas.queue_draw();
+        }
         scen_file.set(sf);
         map_file.set(mf);
-        println!("Ok, {}", status);
-        let res = result_parse();
-        sol_matrix.set(res);
-        canvas.queue_draw();
     }));
 
     nextbutton.connect_clicked(clone!(@strong sol_matrix, @weak canvas, @strong sol_step => move |_| {
@@ -427,7 +445,9 @@ fn build_ui(app: &Application) {
     }));
 
     settings.append(&button);
-    settings.append(&nagents);
+    texthbox.append(&nagents);
+    texthbox.append(&timeout);
+    settings.append(&texthbox);
     settings.append(&button_scen);
     settings.append(&algo_dropdown);
     settings.append(&scrolled_window);
