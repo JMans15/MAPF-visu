@@ -1,4 +1,4 @@
-#![allow(clippy::upper_case_acronyms, dead_code)]
+#![allow(clippy::upper_case_acronyms)]
 
 use gtk::glib::clone;
 use gtk::{glib, Application, Box, FileChooserAction, FileChooserDialog, ListBox, StringList};
@@ -18,42 +18,6 @@ const APP_ID: &str = "org.gtk_rs.mapf";
 const CANVAS_WIDTH: i32 = 768;
 const CANVAS_HEIGHT: i32 = 768;
 
-enum Heuristic {
-    Manhattan,
-    Optimal,
-}
-
-enum LowLevel {
-    CBS,
-    AStar,
-    CoopAStar,
-}
-
-enum Algo {
-    AStar {
-        heuristic: Heuristic,
-        space_time_search: bool,
-        operator_decomposition: bool,
-    },
-    ID {
-        low_level: LowLevel,
-        cat: bool,
-        disjoint_splitting: bool,
-    },
-    SID {
-        low_level: LowLevel,
-        cat: bool,
-        disjoint_splitting: bool,
-    },
-    CoopAStar {
-        heuristic: Heuristic,
-    },
-    CBS {
-        heuristic: Heuristic,
-        cat: bool,
-        disjoint_splitting: bool,
-    },
-}
 
 fn main() -> glib::ExitCode {
     let app = Application::builder().application_id(APP_ID).build();
@@ -243,7 +207,7 @@ fn build_ui(app: &Application) {
     
 
     let model = gtk::StringList::new(&["A*","A* OD","ID A*","ID A* CAT","ID CBS","ID CBS CAT","SID A*",
-        "SID A* CAT","SID CBS","SID CBS CAT","CBS DS","CBS DS CAT","CBS","CBSCAT"]);
+        "SID A* CAT","SID CBS","SID CBS CAT","CBS DS","CBS DS CAT","CBS","CBS CAT"]);
     let algo_dropdown = DropDown::new(Some(model), gtk::Expression::NONE);
 
     let map_matrix = Rc::new(Cell::new(Array2::<bool>::default((1, 1))));
