@@ -124,7 +124,7 @@ fn result_parse() -> Array3<usize> {
                 ));
         }
     }
-    return result;
+    result
 }
 
 fn map_file_parse(
@@ -340,7 +340,7 @@ fn build_ui(app: &Application) {
         let mf = map_file.take();
         let nthalg = algo_dropdown.selected();
         let alg = algo_dropdown.model().unwrap().downcast::<StringList>().ok().unwrap().string(nthalg).unwrap();
-        println!("Running {}, {} agents, scen is {}, map is {}", alg, nagents.text().to_string(), sf, mf);
+        println!("Running {}, {} agents, scen is {}, map is {}", alg, nagents.text(), sf, mf);
         let mut child = Command::new("./TFE_MAPF_visu")
             .arg("-a")
             .arg(alg)
@@ -349,7 +349,7 @@ fn build_ui(app: &Application) {
             .arg("--scen")
             .arg(sf.clone())
             .arg("-n")
-            .arg(nagents.text().to_string())
+            .arg(nagents.text())
         .arg("--outfile").arg("./.out").spawn().unwrap();
         let tm = timeout.text().to_string().parse::<u64>().expect("Couldn't parse");
         let status = match child.wait_timeout(Duration::from_secs(tm)).unwrap() {
@@ -375,7 +375,7 @@ fn build_ui(app: &Application) {
         let sm = sol_matrix.take();
         match ss {
             None => {
-                if sm.len() <= 0 {
+                if sm.is_empty() {
                     return;
                 }
                 ss = Some(0);
@@ -398,19 +398,18 @@ fn build_ui(app: &Application) {
         let sm = sol_matrix.take();
         match ss {
             None => {
-                if sm.len() <= 0 {
+                if sm.is_empty() {
                     return;
                 }
                 let nw = sm.len_of(Axis(0)) as i32 - 1;
                 ss = Some(nw);
             },
             Some(val) => {
-                let nw: i32;
-                if val == 0 {
-                    nw = 0;
+                let nw: i32 = if val == 0 {
+                    0
                 } else {
-                    nw = val - 1;
-                }
+                    val - 1
+                };
                 ss = Some(nw);
             },
         }
