@@ -165,8 +165,8 @@ fn map_file_parse(
         );
 
         map_matrix.set(Array2::<bool>::default((
-            grid_width.get(),
             grid_height.get(),
+            grid_width.get(),
         )));
         let mut current_matrix = map_matrix.take();
         lines.skip(1).enumerate().for_each(|(i, line)| {
@@ -184,6 +184,12 @@ fn build_ui(app: &Application) {
         .application(app)
         .title("GTK MAPF Visualizer")
         .build();
+
+    // let provider = gtk::CssProvider::new();
+    // provider.load_named("Skeuos-White-Dark", None);
+    //
+    // let context = window.style_context();
+    // gtk::StyleContext::add_provider(&context, &provider, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
 
     let canvas = DrawingArea::new();
     canvas.set_size_request(CANVAS_WIDTH, CANVAS_HEIGHT);
@@ -231,7 +237,8 @@ fn build_ui(app: &Application) {
                 return;
             }
             let cell_w: f64 = CANVAS_WIDTH as f64 / grid_width.get() as f64;
-            let cell_h: f64 = CANVAS_HEIGHT as f64 / grid_height.get() as f64;
+            // let cell_h: f64 = CANVAS_HEIGHT as f64 / grid_height.get() as f64;
+            let cell_h: f64 = cell_w;
 
             let solmatrix = sol_matrix.take();
             let ss = sol_step.take();
@@ -353,7 +360,7 @@ fn build_ui(app: &Application) {
         .arg("--outfile").arg("./.out").spawn().unwrap();
         let tm = timeout.text().to_string().parse::<u64>().expect("Couldn't parse");
         let status = match child.wait_timeout(Duration::from_secs(tm)).unwrap() {
-            Some(st) => st.code().unwrap(),
+            Some(st) => st.code().unwrap_or(-1),
             None => {
                 child.kill().unwrap();
                 child.wait().expect("oopsie");
